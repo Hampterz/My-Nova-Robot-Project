@@ -23,25 +23,43 @@ This is the complete story of my build — every mistake, every fix, every momen
 
 Before I even touched a wire, I had to source everything. The full parts list:
 
-| Component | Details |
-|---|---|
-| Main Controller | Teensy 4.0 |
-| Slave Controller | Arduino Nano (CH340 variant) |
-| Servo Driver | PCA9685 16-channel PWM |
-| Servos | 12x DS3218 (270°, 15kg/cm) |
-| IMU | GY-521 / MPU6050 |
-| Wireless Modules | 2x NRF24L01 |
-| Battery | OVONIC 3S LiPo 2200mAh 25C with T/Dean connector |
-| Battery Charger | HTRC 80W 6A balance charger |
-| Servo Buck Converter | XY-160D adjustable (set to 6.8V) |
-| Logic Buck Converter | XL6009 adjustable (set to 5.4V) |
-| MP3 Player | DFPlayer Pro (USB-C, DF1201S chip) |
-| Speaker | Small 4-8 ohm |
-| Ultrasonic Sensors | 2x HC-SR04 |
-| PIR Sensors | 3x PIR |
-| OLED Display | SPI 128x64 |
-| RGB LEDs | 4x WS2812B 5050 addressable modules |
-| 3D Printer | Bambu Lab A1 |
+| # | Part Name | Qty | Cost ($) |
+|---|---|:---:|:---:|
+| 1 | [Teensy 4.0](https://amzn.to/3wTlens) [(New MCU for Teensy circuit v5.x)](https://amzn.to/3tngndK) | 1 | $28 |
+| 2 | [Arduino Nano](https://amzn.to/2WxdzOt) | 1 | $10 |
+| 3 | [12A DC-DC Step Down Buck Converter 4.5V-30V](https://amzn.to/3qpyNJ1) | 1 | $11 |
+| 4 | [DC-DC Buck Boost Converter XL6009 5-32 V to 1.25-35 V](https://amzn.to/3qpz3rg) | 1 | $6 |
+| 5 | [Mini Digital DC Voltmeter](https://amzn.to/2TYLaj0) | 1 | $2 |
+| 6 | [2.54mm PCB Dip Switch Assorted Kit](https://amzn.to/3ui2S0U) | 2 | $1 |
+| 7 | [4.7k Resistor](https://amzn.to/3wSk5wt) | 1 | $1 |
+| 8 | [1k Resistor](https://amzn.to/3wSk5wt) | 1 | $1 |
+| 9 | [Lighted Rocker Switch 12v](https://amzn.to/35Wc11X) | 1 | $1 |
+| 10 | [XT 60 Plug & High Current Switch](https://amzn.to/3dfZ4UK) | 1 | $12 |
+| 11 | [11.1v 3S Lipo Pack](https://amzn.to/387L8cw) | 1 | $15 |
+| 12 | [16-Channel 12-bit PWM/Servo Driver](https://amzn.to/3xRePt2) | 1 | $20 |
+| 13 | [DS3218 20KG Full Metal Gear 270 Degree Digital Servo](https://amzn.to/3h22mNP) | 8 | $112 |
+| 14 | [7.4V 35KG High Torque/Speed Coreless Digital Servo](https://amzn.to/3psMBmV) | 4 | $132 |
+| 15 | [3-Pin Servo Extension Cable](https://amzn.to/3qpzjqr) | 12 | $10 |
+| 16 | [8x16x5mm Ball Bearings](https://amzn.to/3wX2vYl) | 8 | $12 |
+| 17 | [25T Aluminum Servo Arm Horn](https://amzn.to/35Q8aDs) | 12 | $22 |
+| 18 | [MH-SR602 PIR Motion Sensor Module](https://amzn.to/3gY4d6d) | 3 | $8 |
+| 19 | [WS2812B 5050 RGB LED](https://amzn.to/2U3IBw2) | 4 | $4 |
+| 20 | [HC-SR04 Ultrasonic Module Distance Sensor](https://amzn.to/3xOaMh4) | 2 | $6 |
+| 21 | [GY-521 MPU-6050 3 Axis Accelerometer Gyroscope Module](https://amzn.to/2UvtjQU) | 1 | $3 |
+| 22 | [SSD1331 96X64 SPI OLED Display Module](https://amzn.to/3xP6Exe) | 1 | $13 |
+| 23 | [DFPlayer Mini Pro MP3 Player](https://www.dfrobot.com/product-2232.html) | 1 | $10 |
+| 24 | [4Ohm 40mm Diameter 3W Full Range Audio Speaker](https://amzn.to/3G8qdEM) | 1 | $5 |
+| 25 | [Push Button Switch](https://amzn.to/3had6rU) | 1 | $1 |
+| 26 | [5.08mm Screw Connection PCB Terminal](https://amzn.to/3zYZvfR) | 6 | $1 |
+| 27 | [Small Double-Sided PCB Board](https://amzn.to/3xZPuxj) | 2 | $1 |
+| 28 | [Hatchbox Yellow PLA](https://amzn.to/3gWRyjP) | 1 | $30 |
+| 29 | [Hatchbox Black PLA](https://amzn.to/3qs3yNo) | 1 | $30 |
+| 30 | [Hatchbox Purple TPU](https://amzn.to/3jf92JN) | 1 | $30 |
+| 31 | [18AWG Silicone Wire](https://amzn.to/3dfs7rt) | 1 | $12 |
+| 32 | [22AWG Hookup Wire](https://amzn.to/2U0rvza) | 1 | $12 |
+| 33 | [JST / Dupont Connector Kit](https://amzn.to/2SqoSpS) | 1 | $16 |
+| 34 | [M3 M4 M5 M6 304 Stainless Steel Hex Cap Screws](https://amzn.to/3jsBmZt) | 1 | $30 |
+| | **TOTAL ESTIMATED COST** | | **$608** |
 
 The 3D printing alone took days. Watching parts come off the bed one by one, checking tolerances, reprinting when something didn't fit right — it's a whole project within the project.
 

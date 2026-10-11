@@ -1,5 +1,9 @@
 This project is licensed under the terms of the MIT license.
 
+> [!NOTE]
+> For the complete step-by-step build story, photos, wiring walkthrough, parts list, and calibration logs, see the main [Build Blog & Documentation](../README.md).
+
+
 # Nova SM3 - a Spot-Mini Micro clone
 ![Nova-SM3](https://raw.githubusercontent.com/cguweb-com/Arduino-Projects/main/Nova-SM3/novasm3.png)  
 This github project contains the 3D STL files, parts list, electrical diagrams, and the software for my spot-mini clone project, Nova Spot Micro  
