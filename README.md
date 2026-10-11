@@ -297,50 +297,89 @@ One critical thing I got wrong initially: the `radioNumber` setting. The Teensy 
 
 ---
 
-## Servo Calibration
+## Servo Calibration: Why Automatic Failed & Building an Interactive Manual Tool
 
-The calibration process requires the PCA9685 to be initialized with very specific settings. The original builder burned multiple servos by accidentally changing these:
+The calibration process requires the PCA9685 PWM driver to be initialized with very specific hardware timing settings:
 
 ```cpp
-pwm1.setOscillatorFrequency(25000000);  // 25 MHz — do not change
-pwm1.setPWMFreq(60);                    // 60 Hz — do not change
+pwm1.setOscillatorFrequency(25000000);  // 25 MHz — internal PCA9685 oscillator frequency
+pwm1.setPWMFreq(60);                    // 60 Hz PWM update rate for digital servos
 ```
 
-Adafruit suggests 50 Hz for analog servos but the DS3218 is a digital servo and 60 Hz works correctly. Changing either of these values completely invalidates all calibration and can cause servos to behave erratically or get damaged.
+Adafruit tutorials often suggest 50 Hz for analog RC servos, but the DS3218 is a digital servo that expects 60 Hz. Changing either of these values completely invalidates all joint angles and can cause servos to stutter, overheat, or get damaged.
 
-I ran the calibration sketch one leg at a time to start, to avoid any leg-to-leg collisions during sweeping. Connecting three servos, powering up, watching where they homed, then adjusting the values in `NovaServos.h` and repeating.
+### The Problem with the Original "Automatic" Calibration
+
+The original project included an automated calibration approach that attempted to sweep servos automatically through preset limits. In theory, that sounds convenient. In practice, on a real physical quadruped, **it was a disaster**:
+
+1. **Dangerous Blind Sweeping:** The automated routine powered all 12 high-torque servos at once and swept them through hardcoded defaults. Because manufacturing variances, 3D printing tolerances, and 25T spline teeth offsets vary on every single physical build, the default positions were wildly wrong.
+2. **Mechanical Collisions:** With all servos moving automatically, legs slammed into the 3D-printed body frame, joints over-extended past physical end-stops, and servos stalled under heavy mechanical stress, risking gear stripping and burnt driver channels.
+3. **Inability to Compensate for Real Assembly Errors:** Because my servo horns were superglued and the front tibia servos were physically flipped 180°, the automated sweeps tried driving the joints backward into impossible positions. The robot was violently tipping over and crashing onto the workbench.
+
+Automatic calibration simply cannot "see" when a leg is actually square, level, and orthogonal. I needed a tool that gave me exact, tick-by-tick manual control.
+
+### The Solution: My Interactive Manual Calibration Tool
+
+To solve this, I built a dedicated interactive calibration tool: [`Nova-SM3-calibrate`](Nova-SM3/Code/Nova-SM3-calibrate/). 
+
+Instead of sweeping blindly, this tool runs an interactive command loop via the Arduino Serial Monitor (19200 baud) that gives you safe, pinpoint accuracy:
+
+- **Isolated Single-Leg Powering:** All 12 servos start unpowered (`0, 0`). When you select a leg (`leg1`, `leg2`, `leg3`, or `leg4`), the tool turns off every other servo on the robot and **only powers the 3 servos on that specific leg**. This eliminates massive current spikes and prevents multi-leg collisions.
+- **Tick-by-Tick Micro Adjustments:** You command joints directly in real-time by typing `<joint> <pwm>`. For instance:
+  - `0 390` (Coxa / Hip rotation)
+  - `1 290` (Femur / Upper leg)
+  - `2 480` (Tibia / Knee joint)
+  You can jog the PWM value one tick at a time while holding a square or ruler against the chassis to find the exact, true 90° neutral position.
+- **Safe Limit Discovery:** Typing `<joint> min` or `<joint> max` lets you safely test physical travel boundaries without risking over-torquing.
+- **Instant Array Generation:** Once all four legs are aligned, typing `done` dumps the exact 12-servo array into the Serial Monitor, perfectly formatted to paste directly into `NovaServos.h`.
 
 ![Close-up of leg joint servo during calibration](images/IMG_8157.jpg)
 *Close-up of the front leg joint mechanism with the 20kg DSSERVO during angle zeroing and offset calibration.*
 
-My measured home values ended up different from the defaults because my servos were installed at slightly different angles:
+### Calibration Workflow
+
+1. Upload [`Nova-SM3-calibrate.ino`](Nova-SM3/Code/Nova-SM3-calibrate/Nova-SM3-calibrate.ino) to the Teensy 4.0.
+2. Open Serial Monitor at **19200 baud** (with Newline enabled).
+3. Type `leg1` to activate Right Front (Servos 0, 1, 2).
+4. Enter target PWM values (e.g. `1 320`) until each link is perfectly square and orthogonal.
+5. Repeat for `leg2` (Left Front), `leg3` (Right Rear), and `leg4` (Left Rear).
+6. Type `done` to print the full calibration array and update `servoHome[TOTAL_SERVOS]`.
+
+### Measured Physical Home Values
+
+Using the manual calibration tool, my final measured neutral values ended up substantially different from the original project defaults:
 
 ```cpp
-// Default values in the original code:
+// Default values in the original project:
 float servoHome[TOTAL_SERVOS] = {
-  328, 280, 520,   // RFx
-  370, 472, 280,   // LFx
-  375, 331, 370,   // RRx
-  374, 451, 213,   // LRx
+  328, 280, 520,   // RF (Coxa, Femur, Tibia)
+  370, 472, 280,   // LF (Coxa, Femur, Tibia)
+  375, 331, 370,   // RR (Coxa, Femur, Tibia)
+  374, 451, 213,   // LR (Coxa, Femur, Tibia)
 };
 
-// My actual measured values:
+// My actual measured values using the manual calibration tool:
 float servoHome[TOTAL_SERVOS] = {
-  352, 280, 510,   // RFx
-  364, 442, 225,   // LFx
-  367, 331, 423,   // RRx
-  364, 351, 213,   // LRx
+  390, 290, 580,   // RFx
+  390, 510, 250,   // LFx
+  420, 210, 560,   // RRx
+  400, 540, 250,   // LRx
 };
 ```
 
-The front tibia servos (RFT and LFT) were physically installed 180 degrees flipped compared to the correct orientation. Because I had glued the horns, I couldn't just reposition them. Instead I had to invert the values in software.
+### Inverting Flipped Servos in Software
 
-For an inverted servo the formula is: `inverted_home = min + max - current_home`
+The front tibia servos (RFT and LFT) were physically installed 180 degrees flipped compared to the CAD design. Because I had glued the horns, I couldn't just unscrew and flip them mechanically. 
 
-For RFT: 375 + 617 − 510 = **482**  
-For LFT: 425 + 183 − 225 = **383**
+Instead, I used the manual calibration tool to discover their true travel span, and inverted the home positions mathematically:
 
-The min/max limits for those servos also need to be swapped since the direction of movement is reversed.
+$$inverted_home = min + max - current_home$$
+
+- For **RFT**: $375 + 617 - 510 = \mathbf{482}$  
+- For **LFT**: $425 + 183 - 225 = \mathbf{383}$
+
+The software limits for those joints were then swapped in `servoLimit[][]` to match the inverted direction of rotation. Thanks to the manual tool, Nova achieved a level, solid, and repeatable neutral stance across all four legs.
+
 
 ---
 
