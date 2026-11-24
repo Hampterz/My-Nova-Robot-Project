@@ -4693,30 +4693,32 @@ void step_backward(int ydir, int xdir, int zdir) {
 
   // Unified Carpet-Ready Backward Walking Gait:
   // All 4 legs execute identical, mirrored 4-phase trajectories relative to their calibrated gaitHome:
-  //   Step 0 (Vertical Lift):    Tibias lift straight UP (+46..+56) while femurs hold steady (zero carpet scrub)
-  //   Step 1 (High Air Swing):   Femurs swing BACK (-6..-10) while tibias hold high (+34..+42, >26mm carpet clearance)
-  //   Step 2 (Vertical Plant):   Tibias drop straight DOWN (-26..-30) onto carpet firmly without slipping
-  //   Step 3 (Stance Drive):     Femurs push FORWARD (+34..+52) while tibias track smoothly (-18..-22) for flat traction,
+  //   Step 0 (Vertical Lift):    Tibias lift straight UP (+54..+64) slowly enough for loaded servos to clear carpet cleanly
+  //   Step 1 (High Air Swing):   Femurs swing BACK (-8..-12) while tibias hold high (+48..+58, >35mm carpet clearance)
+  //   Step 2 (Vertical Plant):   Tibias drop straight DOWN (-24..-30) onto carpet firmly without slipping
+  //   Step 3 (Stance Drive):     Femurs push FORWARD (+32..+48) while tibias track smoothly (-16..-20) for flat traction,
   //                              propelling the body backward ~10cm per step with balanced front cantilever support.
   //   Step 4 (Reset):            Resets diagonal pair state with brief 4-foot double-support overlap.
 
   int mag = constrain(abs(ydir), 1, abs(y_dir_steps[0]));
-  int back_f   = map(mag, 1, abs(y_dir_steps[0]), 6, 10);    // Rear plant reach behind Home (preserves front balance & rear limits)
-  int fwd_f    = map(mag, 1, abs(y_dir_steps[0]), 34, 52);   // Forward stance drive reach (~54-62 ticks total stroke)
+  int back_f   = map(mag, 1, abs(y_dir_steps[0]), 8, 12);    // Rear plant reach behind Home (~10 at S key, 12 max)
+  int fwd_f    = map(mag, 1, abs(y_dir_steps[0]), 32, 48);   // Forward stance drive reach (~42 at S key -> ~52 ticks / ~10cm stroke)
 
-  int lift_t   = map(mag, 1, abs(y_dir_steps[0]), 46, 56);   // Step 0 clean carpet clearance (~59-67mm)
-  int air_t    = map(mag, 1, abs(y_dir_steps[0]), 34, 42);   // Step 1 sustained air height (>26mm over carpet pile)
-  int plant_t  = map(mag, 1, abs(y_dir_steps[0]), 26, 30);   // Step 2 downward plant extension
-  int stance_t = map(mag, 1, abs(y_dir_steps[0]), 18, 22);   // Step 3 level ground-tracking extension
+  int lift_t   = map(mag, 1, abs(y_dir_steps[0]), 54, 64);   // Step 0 high carpet lift (~60 at S key, ~63mm clearance)
+  int air_t    = map(mag, 1, abs(y_dir_steps[0]), 48, 58);   // Step 1 sustained high air clearance (~54 at S key, ~36mm clearance all swing)
+  int plant_t  = map(mag, 1, abs(y_dir_steps[0]), 24, 30);   // Step 2 downward plant extension
+  int stance_t = map(mag, 1, abs(y_dir_steps[0]), 16, 20);   // Step 3 level ground-tracking extension
 
   int sc = (xdir / 3);
 
-  // Synchronized speeds: Step 3 stance drive duration closely tracks opposing pair's Step 0+1+2 swing duration
-  float lift_spd     = (2.0 * spd_factor);
-  float swing_spd    = (2.5 * spd_factor);
+  // Synchronized speeds: give loaded servos full time to clear carpet before swinging,
+  // and pace Step 3 stance drive cleanly alongside the opposing pair's swing phase.
+  float lift_spd     = (3.2 * spd_factor);
+  float swing_spd    = (3.2 * spd_factor);
   float air_t_spd    = (6.0 * spd_factor);
-  float stance_spd   = (8.0 * spd_factor);
-  float stance_t_spd = (28.0 * spd_factor);
+  float plant_spd    = (2.0 * spd_factor);
+  float stance_spd   = (11.5 * spd_factor);
+  float stance_t_spd = (30.0 * spd_factor);
 
   //apply zdir
   //define move z-factors
@@ -4814,11 +4816,11 @@ void step_backward(int ydir, int xdir, int zdir) {
     // Step 2: Plant feet straight down firmly onto carpet
     update_sequencer(RF, RFC, (rspd*spd_factor), rfturn, (servoSequence[RF] + 1), 0);
     update_sequencer(RF, RFF, swing_spd, (gaitHome[RFF] - back_f), servoSequence[RF], 0);
-    update_sequencer(RF, RFT, lift_spd, (gaitHome[RFT] - plant_t), servoSequence[RF], 0);
+    update_sequencer(RF, RFT, plant_spd, (gaitHome[RFT] - plant_t), servoSequence[RF], 0);
 
     update_sequencer(LR, LRC, (3*spd_factor), (gaitHome[LRC]), (servoSequence[LR] + 1), 0);
     update_sequencer(LR, LRF, swing_spd, (gaitHome[LRF] + back_f), servoSequence[LR], 0);
-    update_sequencer(LR, LRT, lift_spd, (gaitHome[LRT] + plant_t), servoSequence[LR], 0);
+    update_sequencer(LR, LRT, plant_spd, (gaitHome[LRT] + plant_t), servoSequence[LR], 0);
   }
   if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] &&
       !activeServo[LRC] && !activeServo[LRF] && !activeServo[LRT] &&
@@ -4870,11 +4872,11 @@ void step_backward(int ydir, int xdir, int zdir) {
     // Step 2: Plant feet straight down firmly onto carpet
     update_sequencer(RR, RRC, (3*spd_factor), (gaitHome[RRC]), (servoSequence[RR] + 1), 0);
     update_sequencer(RR, RRF, swing_spd, (gaitHome[RRF] - back_f), servoSequence[RR], 0);
-    update_sequencer(RR, RRT, lift_spd, (gaitHome[RRT] - plant_t), servoSequence[RR], 0);
+    update_sequencer(RR, RRT, plant_spd, (gaitHome[RRT] - plant_t), servoSequence[RR], 0);
 
     update_sequencer(LF, LFC, (lspd*spd_factor), lfturn, (servoSequence[LF] + 1), 0);
     update_sequencer(LF, LFF, swing_spd, (gaitHome[LFF] + back_f), servoSequence[LF], 0);
-    update_sequencer(LF, LFT, lift_spd, (gaitHome[LFT] + plant_t), servoSequence[LF], 0);
+    update_sequencer(LF, LFT, plant_spd, (gaitHome[LFT] + plant_t), servoSequence[LF], 0);
   }
   if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] &&
       !activeServo[RRC] && !activeServo[RRF] && !activeServo[RRT] &&
