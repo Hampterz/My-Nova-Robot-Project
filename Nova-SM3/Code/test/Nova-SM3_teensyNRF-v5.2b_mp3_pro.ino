@@ -4704,21 +4704,26 @@ void step_backward(int ydir, int xdir, int zdir) {
   int back_f   = map(mag, 1, abs(y_dir_steps[0]), 8, 12);    // Rear plant reach behind Home (~10 at S key, 12 max)
   int fwd_f    = map(mag, 1, abs(y_dir_steps[0]), 32, 48);   // Forward stance drive reach (~42 at S key -> ~52 ticks / ~10cm stroke)
 
-  int lift_t   = map(mag, 1, abs(y_dir_steps[0]), 54, 64);   // Step 0 high carpet lift (~60 at S key, ~63mm clearance)
-  int air_t    = map(mag, 1, abs(y_dir_steps[0]), 48, 58);   // Step 1 sustained high air clearance (~54 at S key, ~36mm clearance all swing)
-  int plant_t  = map(mag, 1, abs(y_dir_steps[0]), 24, 30);   // Step 2 downward plant extension
-  int stance_t = map(mag, 1, abs(y_dir_steps[0]), 16, 20);   // Step 3 level ground-tracking extension
+  int lift_t   = map(mag, 1, abs(y_dir_steps[0]), 54, 64);   // Step 0 high carpet lift (~60 at S key)
+  int air_t    = map(mag, 1, abs(y_dir_steps[0]), 48, 58);   // Step 1 sustained high air clearance (~54 at S key)
+  int plant_t  = map(mag, 1, abs(y_dir_steps[0]), 28, 34);   // Step 2 firm downward plant extension
+  int stance_t = map(mag, 1, abs(y_dir_steps[0]), 22, 26);   // Step 3 tall upright stance extension
+
+  // Level RF against LF/RR/LR (RFT=580 is 20 ticks more crouched than RRT=560 / LFT=250 vs lay),
+  // plus a small stance preload so front-right chassis weight cannot sag RF during push.
+  const int rf_level_comp = 20;
+  const int rf_load_boost = 4;
 
   int sc = (xdir / 3);
 
-  // Synchronized speeds: give loaded servos full time to clear carpet before swinging,
-  // and pace Step 3 stance drive cleanly alongside the opposing pair's swing phase.
-  float lift_spd     = (3.2 * spd_factor);
-  float swing_spd    = (3.2 * spd_factor);
+  // Authoritative stance speeds overcome carpet static friction & deadband sag cleanly,
+  // while Pair 1/2 finish pushing right as the opposing pair descends to plant (~110ms settle).
+  float lift_spd     = (2.4 * spd_factor);
+  float swing_spd    = (3.0 * spd_factor);
   float air_t_spd    = (6.0 * spd_factor);
   float plant_spd    = (2.0 * spd_factor);
-  float stance_spd   = (11.5 * spd_factor);
-  float stance_t_spd = (30.0 * spd_factor);
+  float stance_spd   = (9.5 * spd_factor);
+  float stance_t_spd = (6.0 * spd_factor);
 
   //apply zdir
   //define move z-factors
@@ -4736,6 +4741,7 @@ void step_backward(int ydir, int xdir, int zdir) {
   for (int i = 0; i < TOTAL_SERVOS; i++) {
     gaitHome[i] = servoHome[i];
   }
+  gaitHome[RFT] -= rf_level_comp;
 
   //pre-apply z factors by direction, not mid-sequence
   if (zdir < -1) {
@@ -4816,7 +4822,7 @@ void step_backward(int ydir, int xdir, int zdir) {
     // Step 2: Plant feet straight down firmly onto carpet
     update_sequencer(RF, RFC, (rspd*spd_factor), rfturn, (servoSequence[RF] + 1), 0);
     update_sequencer(RF, RFF, swing_spd, (gaitHome[RFF] - back_f), servoSequence[RF], 0);
-    update_sequencer(RF, RFT, plant_spd, (gaitHome[RFT] - plant_t), servoSequence[RF], 0);
+    update_sequencer(RF, RFT, plant_spd, (gaitHome[RFT] - plant_t - rf_load_boost), servoSequence[RF], 0);
 
     update_sequencer(LR, LRC, (3*spd_factor), (gaitHome[LRC]), (servoSequence[LR] + 1), 0);
     update_sequencer(LR, LRF, swing_spd, (gaitHome[LRF] + back_f), servoSequence[LR], 0);
@@ -4828,7 +4834,7 @@ void step_backward(int ydir, int xdir, int zdir) {
     // Step 3: Stance drive - all femurs push forward uniformly on carpet, propelling body backward!
     update_sequencer(RF, RFC, (3*spd_factor), gaitHome[RFC], 4, 0);
     update_sequencer(RF, RFF, stance_spd, (gaitHome[RFF] + fwd_f), 4, 0);
-    update_sequencer(RF, RFT, stance_t_spd, (gaitHome[RFT] - stance_t), 4, 0);
+    update_sequencer(RF, RFT, stance_t_spd, (gaitHome[RFT] - stance_t - rf_load_boost), 4, 0);
 
     update_sequencer(LR, LRC, (3*spd_factor), gaitHome[LRC], 4, 0);
     update_sequencer(LR, LRF, stance_spd, (gaitHome[LRF] - fwd_f), 4, 0);
@@ -4904,123 +4910,221 @@ void step_backward(int ydir, int xdir, int zdir) {
 }
 
 void step_left_right(int lorr, int xdir, int ydir, int zdir) {
-  // Fast, Powerful Coax-Driven Turn-in-Place Gait
-  // lorr == 1: Turn Left (CCW)
-  // lorr == 0: Turn Right (CW)
-  // Uses hip coax rotation with diagonal-pair air-swing so feet NEVER drag or bind on carpet!
+  // Disable servo ramping so interrupted gaits never corrupt step speeds
+  use_ramp = 0;
 
-  int turn_mag = 35;
-  if (abs(xdir) > 5) {
-    turn_mag = map(abs(xdir), 5, 22, 28, 42);
-  }
-  // CCW (Left): Front swings left (+turn_mag), Rear swings right (-turn_mag)
-  // CW (Right): Front swings right (-turn_mag), Rear swings left (+turn_mag)
-  int turn_front = (lorr == 1) ? turn_mag : -turn_mag;
-  int turn_rear  = (lorr == 1) ? -turn_mag : turn_mag;
+  // Co-Planar Tangent Tank + Coax Turn-in-Place Gait for Carpet:
+  // Pure coax-only turning shuffles in place because lateral hip travel alone is too small
+  // and premature coax twist scrubs feet across carpet before tibias lift.
+  // Instead, all 4 legs execute a 4-phase diagonal trot along the chassis tangent circle:
+  //   - Opposite longitudinal femur strokes between Left and Right sides (tank couple)
+  //   - Opposing Front vs Rear coax arcs synchronized with femur travel (zero foot scrub)
+  //   Step 0 (Vertical Lift):     Tibias only lift straight UP off carpet while femurs/coaxes hold steady
+  //   Step 1 (Tangent Air Swing): Femurs + coaxes swing together at sustained high air clearance
+  //   Step 2 (Vertical Plant):    Tibias drop straight DOWN firmly onto carpet (with RF leveling)
+  //   Step 3 (Tangent Stance):    Femurs + coaxes drive back along the exact tangent circle in sync
+  //   Step 4 (Reset):             Resets pair sequence cleanly for the next half-turn
+  // lorr == 1: Turn Left (CCW viewed from above)
+  // lorr == 0: Turn Right (CW viewed from above)
 
-  // Lift parameters to ensure feet lift cleanly above carpet pile
-  int lift_t = 45;
-  int lift_f = 15;
+  int mag = constrain(abs(xdir), 1, abs(x_dir_steps[0]));
+  int coax_mag = map(mag, 1, abs(x_dir_steps[0]), 18, 28);   // ~24 at A/D key (respects RFC/RRC 40-tick limit)
+  int back_f   = map(mag, 1, abs(x_dir_steps[0]), 8, 12);    // ~10 at A/D key (safe rear femur margin >= 28)
+  int fwd_f    = map(mag, 1, abs(x_dir_steps[0]), 30, 44);   // ~39 at A/D key
 
-  // Snappy speed for fast, crisp turns (low values = high speed)
-  int cspd = limit_speed(spd * 0.7);
-  int fspd = limit_speed(spd * 0.8);
-  int tspd = limit_speed(spd * 0.6);
-  if (cspd < 1) cspd = 1;
-  if (fspd < 1) fspd = 1;
-  if (tspd < 1) tspd = 1;
+  int lift_t   = map(mag, 1, abs(x_dir_steps[0]), 52, 62);   // ~58 at A/D key: clean carpet clearance
+  int air_t    = map(mag, 1, abs(x_dir_steps[0]), 46, 56);   // ~52 at A/D key: sustained air clearance
+  int plant_t  = map(mag, 1, abs(x_dir_steps[0]), 26, 32);   // ~30 at A/D key: firm carpet bite
+  int stance_t = map(mag, 1, abs(x_dir_steps[0]), 20, 26);   // ~24 at A/D key: upright turning stance
+
+  // Level RF against LF/RR/LR and add small stance preload for front-right weight bias
+  const int rf_level_comp = 20;
+  const int rf_load_boost = 4;
+
+  // Synchronized speeds so coax & femur travel finish their tangent arc together
+  // (AsyncServo steps every (sp + 1) ms, so match (coax_sp + 1) = (femur_sp + 1) * coax_ratio)
+  float coax_ratio = (float)(back_f + fwd_f) / (float)coax_mag;
+  int lift_spd        = (int)(2.4 * spd_factor);
+  int swing_spd       = (int)(3.0 * spd_factor);
+  int air_t_spd       = (int)(6.0 * spd_factor);
+  int plant_spd       = (int)(2.0 * spd_factor);
+  int stance_spd      = (int)(9.0 * spd_factor + 0.5);
+  int stance_t_spd    = (int)(6.0 * spd_factor);
+  if (lift_spd < 1) lift_spd = 1;
+  if (swing_spd < 1) swing_spd = 1;
+  if (air_t_spd < 1) air_t_spd = 1;
+  if (plant_spd < 1) plant_spd = 1;
+  if (stance_spd < 2) stance_spd = 2;
+  if (stance_t_spd < 1) stance_t_spd = 1;
+  int coax_swing_spd  = (int)(((swing_spd + 1) * coax_ratio) - 0.5);
+  int coax_stance_spd = (int)(((stance_spd + 1) * coax_ratio) - 0.5);
+  if (coax_swing_spd < 1) coax_swing_spd = 1;
+  if (coax_stance_spd < 2) coax_stance_spd = 2;
+
+  // Coax air targets (+ = Left, - = Right on all 4 coaxes):
+  // Left turn (CCW): Front air swings Left (+), drives Right (-> Home) pushing chest Left.
+  //                  Rear air swings Right (-), drives Left (-> Home) pushing hips Right.
+  int turn_front = (lorr == 1) ? coax_mag : -coax_mag;
+  int turn_rear  = (lorr == 1) ? -coax_mag : coax_mag;
+
+  // Femur air vs stance targets by side for tank-couple torque:
+  // Remember: RFF/RRF (+ = Fwd, - = Back); LFF/LRF (- = Fwd, + = Back).
+  // Left turn (CCW): Right feet drive Back (pushing body Right-Fwd); Left feet drive Fwd (pushing body Left-Back).
+  // Right turn (CW): Right feet drive Fwd (pushing body Right-Back); Left feet drive Back (pushing body Left-Fwd).
+  int rff_air    = (lorr == 1) ?  fwd_f : -back_f;
+  int rff_stance = (lorr == 1) ? -back_f :  fwd_f;
+  int rrf_air    = (lorr == 1) ?  fwd_f : -back_f;
+  int rrf_stance = (lorr == 1) ? -back_f :  fwd_f;
+
+  int lff_air    = (lorr == 1) ?  back_f : -fwd_f;
+  int lff_stance = (lorr == 1) ? -fwd_f  :  back_f;
+  int lrf_air    = (lorr == 1) ?  back_f : -fwd_f;
+  int lrf_stance = (lorr == 1) ? -fwd_f  :  back_f;
+
+  //apply zdir
+  float czmfact = 0;
+  float fzmfact = 0.8;
+  float tzmfact = 1.525;
+  float tz = (zdir * tzmfact);
+  float fz = (zdir * fzmfact);
+  float cz = czmfact;
 
   float gaitHome[TOTAL_SERVOS];
   for (int i = 0; i < TOTAL_SERVOS; i++) {
     gaitHome[i] = servoHome[i];
   }
+  gaitHome[RFT] -= rf_level_comp;
+
+  if (zdir < -1) {
+    gaitHome[RFT] += abs(tz);
+    gaitHome[RFF] -= abs(fz);
+    gaitHome[RFC] -= abs(cz);
+    gaitHome[RRT] += abs(tz);
+    gaitHome[RRF] -= abs(fz);
+    gaitHome[RRC] -= abs(cz);
+    gaitHome[LFT] -= abs(tz);
+    gaitHome[LFF] += abs(fz);
+    gaitHome[LFC] += abs(cz);
+    gaitHome[LRT] -= abs(tz);
+    gaitHome[LRF] += abs(fz);
+    gaitHome[LRC] += abs(cz);
+  } else if (zdir > 1) {
+    gaitHome[RFT] -= tz;
+    gaitHome[RFF] += fz;
+    gaitHome[RFC] += cz;
+    gaitHome[RRT] -= tz;
+    gaitHome[RRF] += fz;
+    gaitHome[RRC] += cz;
+    gaitHome[LFT] += tz;
+    gaitHome[LFF] -= fz;
+    gaitHome[LFC] -= cz;
+    gaitHome[LRT] += tz;
+    gaitHome[LRF] -= fz;
+    gaitHome[LRC] -= cz;
+  }
 
   // --- PAIR 1: RF & LR ---
-  // Step 1: Lift Pair 1 into the air and swing coaxes towards turn target
+  // Step 0: Pure vertical lift straight UP off carpet (femurs & coaxes hold steady)
   if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] &&
       !activeServo[LRC] && !activeServo[LRF] && !activeServo[LRT] &&
       !servoSequence[RF] && activeGaitPair == 0) {
-    // Lift RF (Right Front) & swing coax in air
-    update_sequencer(RF, RFC, cspd, (gaitHome[RFC] + turn_front), (servoSequence[RF] + 1), 0);
-    update_sequencer(RF, RFF, fspd, (gaitHome[RFF] - lift_f), servoSequence[RF], 0);
-    update_sequencer(RF, RFT, tspd, (gaitHome[RFT] + lift_t), servoSequence[RF], 0);
-
-    // Lift LR (Left Rear) & swing coax in air
-    update_sequencer(LR, LRC, cspd, (gaitHome[LRC] + turn_rear), (servoSequence[LR] + 1), 0);
-    update_sequencer(LR, LRF, fspd, (gaitHome[LRF] + lift_f), servoSequence[LR], 0);
-    update_sequencer(LR, LRT, tspd, (gaitHome[LRT] - lift_t), servoSequence[LR], 0);
+    update_sequencer(RF, RFT, lift_spd, (gaitHome[RFT] + lift_t), 1, 0);
+    update_sequencer(LR, LRT, lift_spd, (gaitHome[LRT] - lift_t), 1, 0);
   }
 
-  // Step 2: Plant Pair 1 feet firmly down at rotated position
+  // Step 1: Swing femurs and coaxes along tangent arc while tibias hold high air clearance
   if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] &&
       !activeServo[LRC] && !activeServo[LRF] && !activeServo[LRT] &&
       servoSequence[RF] == 1) {
-    update_sequencer(RF, RFC, cspd, (gaitHome[RFC] + turn_front), (servoSequence[RF] + 1), 0);
-    update_sequencer(RF, RFF, fspd, gaitHome[RFF], servoSequence[RF], 0);
-    update_sequencer(RF, RFT, tspd, gaitHome[RFT], servoSequence[RF], 0);
+    update_sequencer(RF, RFC, coax_swing_spd, (gaitHome[RFC] + turn_front), 2, 0);
+    update_sequencer(RF, RFF, swing_spd, (gaitHome[RFF] + rff_air), 2, 0);
+    update_sequencer(RF, RFT, air_t_spd, (gaitHome[RFT] + air_t), 2, 0);
 
-    update_sequencer(LR, LRC, cspd, (gaitHome[LRC] + turn_rear), (servoSequence[LR] + 1), 0);
-    update_sequencer(LR, LRF, fspd, gaitHome[LRF], servoSequence[LR], 0);
-    update_sequencer(LR, LRT, tspd, gaitHome[LRT], servoSequence[LR], 0);
+    update_sequencer(LR, LRC, coax_swing_spd, (gaitHome[LRC] + turn_rear), 2, 0);
+    update_sequencer(LR, LRF, swing_spd, (gaitHome[LRF] + lrf_air), 2, 0);
+    update_sequencer(LR, LRT, air_t_spd, (gaitHome[LRT] - air_t), 2, 0);
   }
 
-  // Step 3: Stance drive - Pair 1 pulls coaxes back to home, rotating the body!
+  // Step 2: Plant feet straight down firmly onto carpet before applying stance torque
   if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] &&
       !activeServo[LRC] && !activeServo[LRF] && !activeServo[LRT] &&
       servoSequence[RF] == 2) {
-    update_sequencer(RF, RFC, cspd, gaitHome[RFC], 3, 0);
-    update_sequencer(LR, LRC, cspd, gaitHome[LRC], 3, 0);
-    activeGaitPair = 1; // Hand turn over to Pair 2
+    update_sequencer(RF, RFT, plant_spd, (gaitHome[RFT] - plant_t - rf_load_boost), 3, 0);
+    update_sequencer(LR, LRT, plant_spd, (gaitHome[LRT] + plant_t), 3, 0);
   }
 
+  // Step 3: Synchronized tangent stance drive - coax & femur rotate the body crisply in place
   if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] &&
       !activeServo[LRC] && !activeServo[LRF] && !activeServo[LRT] &&
       servoSequence[RF] == 3) {
+    update_sequencer(RF, RFC, coax_stance_spd, gaitHome[RFC], 4, 0);
+    update_sequencer(RF, RFF, stance_spd, (gaitHome[RFF] + rff_stance), 4, 0);
+    update_sequencer(RF, RFT, stance_t_spd, (gaitHome[RFT] - stance_t - rf_load_boost), 4, 0);
+
+    update_sequencer(LR, LRC, coax_stance_spd, gaitHome[LRC], 4, 0);
+    update_sequencer(LR, LRF, stance_spd, (gaitHome[LRF] + lrf_stance), 4, 0);
+    update_sequencer(LR, LRT, stance_t_spd, (gaitHome[LRT] + stance_t), 4, 0);
+
+    activeGaitPair = 1; // Pair 1 planted & driving; hand turn to Pair 2
+  }
+
+  // Step 4: Reset Pair 1 state once tangent drive finishes
+  if (!activeServo[RFC] && !activeServo[RFF] && !activeServo[RFT] &&
+      !activeServo[LRC] && !activeServo[LRF] && !activeServo[LRT] &&
+      servoSequence[RF] == 4) {
     servoSequence[RF] = 0;
     servoSequence[LR] = 0;
   }
 
   // --- PAIR 2: LF & RR ---
-  // Step 1: Lift Pair 2 into the air and swing coaxes towards turn target
+  // Step 0: Pure vertical lift straight UP off carpet (femurs & coaxes hold steady)
   if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] &&
       !activeServo[RRC] && !activeServo[RRF] && !activeServo[RRT] &&
       !servoSequence[LF] && activeGaitPair == 1) {
-    // Lift LF (Left Front) & swing coax in air
-    update_sequencer(LF, LFC, cspd, (gaitHome[LFC] + turn_front), (servoSequence[LF] + 1), 0);
-    update_sequencer(LF, LFF, fspd, (gaitHome[LFF] + lift_f), servoSequence[LF], 0);
-    update_sequencer(LF, LFT, tspd, (gaitHome[LFT] - lift_t), servoSequence[LF], 0);
-
-    // Lift RR (Right Rear) & swing coax in air
-    update_sequencer(RR, RRC, cspd, (gaitHome[RRC] + turn_rear), (servoSequence[RR] + 1), 0);
-    update_sequencer(RR, RRF, fspd, (gaitHome[RRF] - lift_f), servoSequence[RR], 0);
-    update_sequencer(RR, RRT, tspd, (gaitHome[RRT] + lift_t), servoSequence[RR], 0);
+    update_sequencer(RR, RRT, lift_spd, (gaitHome[RRT] + lift_t), 1, 0);
+    update_sequencer(LF, LFT, lift_spd, (gaitHome[LFT] - lift_t), 1, 0);
   }
 
-  // Step 2: Plant Pair 2 feet firmly down at rotated position
+  // Step 1: Swing femurs and coaxes along tangent arc while tibias hold high air clearance
   if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] &&
       !activeServo[RRC] && !activeServo[RRF] && !activeServo[RRT] &&
       servoSequence[LF] == 1) {
-    update_sequencer(LF, LFC, cspd, (gaitHome[LFC] + turn_front), (servoSequence[LF] + 1), 0);
-    update_sequencer(LF, LFF, fspd, gaitHome[LFF], servoSequence[LF], 0);
-    update_sequencer(LF, LFT, tspd, gaitHome[LFT], servoSequence[LF], 0);
+    update_sequencer(RR, RRC, coax_swing_spd, (gaitHome[RRC] + turn_rear), 2, 0);
+    update_sequencer(RR, RRF, swing_spd, (gaitHome[RRF] + rrf_air), 2, 0);
+    update_sequencer(RR, RRT, air_t_spd, (gaitHome[RRT] + air_t), 2, 0);
 
-    update_sequencer(RR, RRC, cspd, (gaitHome[RRC] + turn_rear), (servoSequence[RR] + 1), 0);
-    update_sequencer(RR, RRF, fspd, gaitHome[RRF], servoSequence[RR], 0);
-    update_sequencer(RR, RRT, tspd, gaitHome[RRT], servoSequence[RR], 0);
+    update_sequencer(LF, LFC, coax_swing_spd, (gaitHome[LFC] + turn_front), 2, 0);
+    update_sequencer(LF, LFF, swing_spd, (gaitHome[LFF] + lff_air), 2, 0);
+    update_sequencer(LF, LFT, air_t_spd, (gaitHome[LFT] - air_t), 2, 0);
   }
 
-  // Step 3: Stance drive - Pair 2 pulls coaxes back to home, rotating the body!
+  // Step 2: Plant feet straight down firmly onto carpet before applying stance torque
   if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] &&
       !activeServo[RRC] && !activeServo[RRF] && !activeServo[RRT] &&
       servoSequence[LF] == 2) {
-    update_sequencer(LF, LFC, cspd, gaitHome[LFC], 3, 0);
-    update_sequencer(RR, RRC, cspd, gaitHome[RRC], 3, 0);
-    activeGaitPair = 0; // Hand turn back to Pair 1
+    update_sequencer(RR, RRT, plant_spd, (gaitHome[RRT] - plant_t), 3, 0);
+    update_sequencer(LF, LFT, plant_spd, (gaitHome[LFT] + plant_t), 3, 0);
   }
 
+  // Step 3: Synchronized tangent stance drive - coax & femur rotate the body crisply in place
   if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] &&
       !activeServo[RRC] && !activeServo[RRF] && !activeServo[RRT] &&
       servoSequence[LF] == 3) {
+    update_sequencer(RR, RRC, coax_stance_spd, gaitHome[RRC], 4, 0);
+    update_sequencer(RR, RRF, stance_spd, (gaitHome[RRF] + rrf_stance), 4, 0);
+    update_sequencer(RR, RRT, stance_t_spd, (gaitHome[RRT] - stance_t), 4, 0);
+
+    update_sequencer(LF, LFC, coax_stance_spd, gaitHome[LFC], 4, 0);
+    update_sequencer(LF, LFF, stance_spd, (gaitHome[LFF] + lff_stance), 4, 0);
+    update_sequencer(LF, LFT, stance_t_spd, (gaitHome[LFT] + stance_t), 4, 0);
+
+    activeGaitPair = 0; // Pair 2 planted & driving; hand turn back to Pair 1
+  }
+
+  // Step 4: Reset Pair 2 state once tangent drive finishes
+  if (!activeServo[LFC] && !activeServo[LFF] && !activeServo[LFT] &&
+      !activeServo[RRC] && !activeServo[RRF] && !activeServo[RRT] &&
+      servoSequence[LF] == 4) {
     servoSequence[LF] = 0;
     servoSequence[RR] = 0;
     lastMoveDelayUpdate = millis();
